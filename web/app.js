@@ -1,11 +1,5 @@
 // pintalk — 1-on-1 WebRTC client.
 // Wire protocol with the Go signaling server is described in internal/signal/ws.go.
-//
-// Order of events:
-//  1. ws.open → server sends {type:"welcome", peerId, peers, peer:{initiator}}
-//  2. If we are the only peer in the room: wait. We are NOT the initiator.
-//  3. When the second peer joins, server tells *them* initiator=true. They create the offer.
-//  4. signal forwarding: {type:"signal", to, payload} → server sets `from` and forwards.
 
 (() => {
   const meta = name => {
@@ -20,22 +14,30 @@
   const elJoin     = $("join-screen");
   const elCall     = $("call-screen");
   const elStatus   = $("status");
-  const elLocal    = $("local-video");
-  const elRemote   = $("remote-video");
+  const elMain     = $("main-video");
+  const elPipWrap  = $("pip");
+  const elPip      = $("pip-video");
   const elPlaceholder = $("placeholder");
   const elMic      = $("mic-btn");
   const elCam      = $("cam-btn");
+  const elFlip     = $("flip-btn");
+  const elSwap     = $("swap-btn");
   const elHangup   = $("hangup-btn");
   const elCopy     = $("copy-link");
 
   let ws = null;
   let pc = null;
   let localStream = null;
+  let remoteStream = null;
   let myPeerId = null;
   let remotePeerId = null;
   let initiator = false;
-  // Buffer ICE candidates that arrive before remoteDescription is set.
   let pendingICE = [];
+
+  // UI state
+  let pipShowsLocal = true;     // false = pip shows remote, main shows local
+  let currentFacing = "user";   // 'user' or 'environment' (mobile only)
+  let hasMultipleCameras = false;
 
   function setStatus(text) {
     if (elStatus) elStatus.textContent = text;
@@ -62,17 +64,20 @@
     nameInput.addEventListener("keydown", e => { if (e.key === "Enter") tryJoin(); });
   }
 
+  // --- top bar: copy link ---
   if (elCopy) {
     elCopy.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(window.location.href);
-        elCopy.textContent = "Скопировано ✓";
-        setTimeout(() => elCopy.textContent = "Скопировать ссылку", 1500);
+        elCopy.classList.add("copied");
+        setTimeout(() => elCopy.classList.remove("copied"), 1200);
       } catch {
         prompt("Скопируй ссылку:", window.location.href);
       }
     });
   }
+
+  // --- bottom controls ---
   if (elHangup) {
     elHangup.addEventListener("click", () => {
       cleanup();
@@ -85,8 +90,7 @@
       const track = localStream.getAudioTracks()[0];
       if (!track) return;
       track.enabled = !track.enabled;
-      elMic.classList.toggle("danger", !track.enabled);
-      elMic.classList.toggle("secondary", track.enabled);
+      elMic.classList.toggle("muted", !track.enabled);
     });
   }
   if (elCam) {
@@ -95,19 +99,28 @@
       const track = localStream.getVideoTracks()[0];
       if (!track) return;
       track.enabled = !track.enabled;
-      elCam.classList.toggle("danger", !track.enabled);
-      elCam.classList.toggle("secondary", track.enabled);
+      elCam.classList.toggle("muted", !track.enabled);
+      // when local cam is off, hide local preview tile (or show placeholder text)
+      elPipWrap.classList.toggle("no-video", !track.enabled && pipShowsLocal);
     });
   }
+  if (elFlip) {
+    elFlip.addEventListener("click", () => switchCamera());
+  }
+  if (elSwap) {
+    elSwap.addEventListener("click", swapTiles);
+  }
+  // Tap on PiP also swaps — feels natural on mobile.
+  elPipWrap.addEventListener("click", swapTiles);
+
   window.addEventListener("beforeunload", cleanup);
 
   // --- main flow ---
   async function start(displayName) {
-    // Try camera+mic, then mic-only, then no media (listener mode).
     setStatus("Запрашиваем камеру…");
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: currentFacing },
         audio: { echoCancellation: true, noiseSuppression: true },
       });
     } catch (e1) {
@@ -119,24 +132,22 @@
         });
       } catch (e2) {
         console.warn("mic-only failed:", e2.name, e2.message);
-        setStatus("Нет камеры/микрофона — режим только просмотра");
-        localStream = null; // proceed without media; we'll still receive remote
+        setStatus("Без камеры/микрофона — режим только просмотра");
+        localStream = null;
       }
     }
 
-    if (localStream) {
-      elLocal.srcObject = localStream;
-      // Hide local-video tile if no video track (audio-only host)
-      if (localStream.getVideoTracks().length === 0) {
-        elLocal.style.display = "none";
-        if (elCam) elCam.disabled = true;
-      }
-    } else {
-      // No local media at all — hide local tile and disable mic/cam controls.
-      elLocal.style.display = "none";
-      if (elCam) elCam.disabled = true;
-      if (elMic) elMic.disabled = true;
+    // Detect multiple cameras → show flip button (only meaningful if we got video)
+    if (localStream && localStream.getVideoTracks().length > 0) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter(d => d.kind === "videoinput");
+        hasMultipleCameras = cams.length > 1;
+        if (hasMultipleCameras && elFlip) elFlip.hidden = false;
+      } catch (e) { /* ignore */ }
     }
+
+    applyLocalStream();
 
     setStatus("Получаем ICE-конфиг…");
     let iceServers = [{ urls: ["stun:stun.l.google.com:19302"] }];
@@ -152,6 +163,97 @@
 
     setStatus("Соединение…");
     openWS(displayName, iceServers);
+  }
+
+  // Renders localStream into the appropriate tile (PiP or main, depending on swap state)
+  // and configures controls based on what tracks are present.
+  function applyLocalStream() {
+    const localTarget = pipShowsLocal ? elPip : elMain;
+    const otherTarget = pipShowsLocal ? elMain : elPip;
+
+    if (localStream) {
+      localTarget.srcObject = localStream;
+      const hasVideo = localStream.getVideoTracks().length > 0;
+      const hasAudio = localStream.getAudioTracks().length > 0;
+      if (!hasVideo) {
+        if (elCam) elCam.disabled = true;
+        if (pipShowsLocal) elPipWrap.classList.add("no-video");
+      } else {
+        if (elCam) elCam.disabled = false;
+        elPipWrap.classList.remove("no-video");
+      }
+      if (!hasAudio && elMic) elMic.disabled = true;
+    } else {
+      // No local media: hide PiP entirely (we'll see only remote on main)
+      elPipWrap.hidden = true;
+      if (elCam) elCam.disabled = true;
+      if (elMic) elMic.disabled = true;
+    }
+
+    // Mirror local cam in PiP (the front camera), but never the remote view.
+    elPipWrap.classList.toggle("local-cam-mirror", pipShowsLocal && currentFacing === "user");
+
+    // Place remote stream in the "other" target if we have one.
+    if (remoteStream) {
+      otherTarget.srcObject = remoteStream;
+    }
+  }
+
+  function swapTiles() {
+    if (!remoteStream) return; // nothing to swap with
+    pipShowsLocal = !pipShowsLocal;
+    // Swap srcObjects
+    if (pipShowsLocal) {
+      elPip.srcObject = localStream;
+      elMain.srcObject = remoteStream;
+    } else {
+      elPip.srcObject = remoteStream;
+      elMain.srcObject = localStream;
+    }
+    // PiP audio is always muted; main is not.
+    elPip.muted = true;
+    elMain.muted = false;
+    // Mirror state
+    elPipWrap.classList.toggle("local-cam-mirror", pipShowsLocal && currentFacing === "user");
+  }
+
+  async function switchCamera() {
+    if (!localStream) return;
+    const oldVideo = localStream.getVideoTracks()[0];
+    if (!oldVideo) return;
+    const newFacing = currentFacing === "user" ? "environment" : "user";
+    let newStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: newFacing } },
+      });
+    } catch (e) {
+      // Fallback without 'exact' (some browsers reject it)
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: newFacing },
+        });
+      } catch (e2) {
+        console.warn("switchCamera failed:", e2);
+        return;
+      }
+    }
+    const newTrack = newStream.getVideoTracks()[0];
+    // Replace track on the peer connection, if any
+    if (pc) {
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === "video");
+      if (sender) {
+        try { await sender.replaceTrack(newTrack); } catch (e) { console.warn("replaceTrack", e); }
+      }
+    }
+    // Swap track in localStream
+    localStream.removeTrack(oldVideo);
+    oldVideo.stop();
+    localStream.addTrack(newTrack);
+    currentFacing = newFacing;
+
+    // Re-render (mirror flips for front camera, doesn't for back)
+    applyLocalStream();
   }
 
   function openWS(name, iceServers) {
@@ -172,7 +274,6 @@
       if (m.type === "welcome") {
         myPeerId = m.peerId;
         initiator = !!(m.peer && m.peer.initiator);
-        // peers already in the room (max 1, since 1-on-1)
         for (const p of (m.peers || [])) {
           remotePeerId = p.id;
         }
@@ -183,16 +284,14 @@
       } else if (m.type === "peer-joined") {
         remotePeerId = m.peer.id;
         await ensurePC(iceServers);
-        // we are NOT the initiator here (the joiner is)
       } else if (m.type === "peer-left") {
         if (m.peerId === remotePeerId) {
           setStatus("Собеседник отключился");
           remotePeerId = null;
+          remoteStream = null;
           showPlaceholder(true);
-          if (elRemote.srcObject) {
-            elRemote.srcObject.getTracks().forEach(t => t.stop());
-            elRemote.srcObject = null;
-          }
+          // clear remote-side tile
+          (pipShowsLocal ? elMain : elPip).srcObject = null;
           cleanupPC();
         }
       } else if (m.type === "signal") {
@@ -209,8 +308,6 @@
         pc.addTrack(track, localStream);
       }
     } else {
-      // No local media — explicitly add receive-only transceivers so the offer
-      // includes m-lines and the remote can send us its tracks.
       pc.addTransceiver("audio", { direction: "recvonly" });
       pc.addTransceiver("video", { direction: "recvonly" });
     }
@@ -220,13 +317,13 @@
       }
     });
     pc.addEventListener("track", ev => {
-      if (ev.streams && ev.streams[0]) {
-        elRemote.srcObject = ev.streams[0];
-      } else {
-        const s = elRemote.srcObject || new MediaStream();
-        s.addTrack(ev.track);
-        elRemote.srcObject = s;
-      }
+      // Combine all remote tracks into a single MediaStream
+      if (!remoteStream) remoteStream = new MediaStream();
+      remoteStream.addTrack(ev.track);
+      // Render into "main" by default (PiP shows local)
+      const target = pipShowsLocal ? elMain : elPip;
+      target.srcObject = remoteStream;
+      target.muted = (target === elPip);
       showPlaceholder(false);
     });
     pc.addEventListener("connectionstatechange", () => {
@@ -251,7 +348,6 @@
     if (payload.sdp) {
       const desc = new RTCSessionDescription(payload.sdp);
       await pc.setRemoteDescription(desc);
-      // flush buffered ICE
       for (const c of pendingICE) {
         try { await pc.addIceCandidate(c); } catch (e) { console.warn("buffered ice", e); }
       }
@@ -288,5 +384,6 @@
     cleanupPC();
     if (ws) { try { ws.close(); } catch {} ws = null; }
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    if (remoteStream) { remoteStream.getTracks().forEach(t => t.stop()); remoteStream = null; }
   }
 })();
