@@ -96,7 +96,7 @@ func cmdServe(args []string) error {
 	defer cancel()
 
 	if *dev {
-		addr := ":" + strconv.Itoa(cfg.Server.DevPort)
+		addr := cfg.Server.ListenIP + ":" + strconv.Itoa(cfg.Server.DevPort)
 		httpSrv := &http.Server{
 			Addr:              addr,
 			Handler:           handler,
@@ -129,7 +129,7 @@ func cmdServe(args []string) error {
 		HostPolicy: autocert.HostWhitelist(cfg.Server.Domain),
 	}
 
-	httpsAddr := ":" + strconv.Itoa(cfg.Server.HTTPSPort)
+	httpsAddr := cfg.Server.ListenIP + ":" + strconv.Itoa(cfg.Server.HTTPSPort)
 	httpsSrv := &http.Server{
 		Addr:              httpsAddr,
 		Handler:           handler,
@@ -137,7 +137,7 @@ func cmdServe(args []string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	httpAddr := ":" + strconv.Itoa(cfg.Server.HTTPPort)
+	httpAddr := cfg.Server.ListenIP + ":" + strconv.Itoa(cfg.Server.HTTPPort)
 	httpSrv := &http.Server{
 		Addr:              httpAddr,
 		Handler:           manager.HTTPHandler(http.HandlerFunc(redirectToHTTPS(cfg.Server.Domain, cfg.Server.HTTPSPort))),

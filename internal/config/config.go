@@ -17,6 +17,9 @@ type Config struct {
 
 type ServerConfig struct {
 	Domain    string `yaml:"domain"`
+	// ListenIP — на каком IP слушать HTTP/HTTPS. Пусто = все интерфейсы (0.0.0.0).
+	// Поставь WAN-IP роутера, если на 80/443 ещё стоит LuCI на LAN-IP.
+	ListenIP  string `yaml:"listen_ip"`
 	HTTPPort  int    `yaml:"http_port"`
 	HTTPSPort int    `yaml:"https_port"`
 	CertCache string `yaml:"cert_cache"`
