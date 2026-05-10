@@ -1,0 +1,4 @@
+# Keep shell scripts and OpenWrt service files LF — they crash with CRLF on Linux.
+*.sh             text eol=lf
+deploy/init.d/*  text eol=lf
+Makefile         text eol=lf

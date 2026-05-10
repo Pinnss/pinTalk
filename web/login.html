@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pintalk — вход</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="center-box">
+    <h1>pintalk</h1>
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    <form method="post" action="/api/login">
+      <div class="row">
+        <label for="username">Логин</label>
+        <input id="username" name="username" type="text" required autofocus autocomplete="username">
+      </div>
+      <div class="row">
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" required autocomplete="current-password">
+      </div>
+      <button class="full" type="submit">Войти</button>
+    </form>
+  </div>
+</body>
+</html>

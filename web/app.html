@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pintalk</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="title">pintalk</span>
+    <span class="spacer"></span>
+    <span class="muted">{{.Username}}</span>
+    <form method="post" action="/api/logout" style="margin: 0;">
+      <button class="secondary" type="submit">Выйти</button>
+    </form>
+  </header>
+
+  <div class="center-box" style="margin-top: 80px;">
+    <h1>Создать звонок</h1>
+    <p class="muted" style="margin-bottom: 18px;">
+      Нажми кнопку — откроется страница звонка, скопируй ссылку и отправь собеседнику.
+    </p>
+    <button id="create-btn" class="full">Создать звонок</button>
+  </div>
+
+  <script>
+    const btn = document.getElementById('create-btn');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Создаём…';
+      try {
+        const r = await fetch('/api/rooms', { method: 'POST' });
+        if (!r.ok) throw new Error('http ' + r.status);
+        const data = await r.json();
+        window.location.href = data.url;
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Создать звонок';
+        alert('Не удалось создать звонок: ' + e.message);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Local dev config: dev_port :8080, TURN disabled (P2P over localhost works without it).
+# Запуск: ./bin/pintalk.exe serve --dev --config config.dev.yaml
+#
+# Хэш ниже — это bcrypt от пароля "test123". Перезапиши через ./pintalk hash <свой-пароль>.
+
+server:
+  domain: localhost
+  dev_port: 8080
+
+turn:
+  enabled: false
+  shared_secret: dev-not-used
+
+hosts:
+  - username: pin
+    password_hash: "$2a$12$x4G91UGXk1jbIZpy/r6Ynu4BCeoBeKXFgO3AMowZ8tx4Y8FJOOinq"

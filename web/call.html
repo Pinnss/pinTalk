@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pintalk — звонок</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <meta name="pintalk-room-id" content="{{.RoomID}}">
+  <meta name="pintalk-is-host" content="{{.IsHost}}">
+  <meta name="pintalk-host-name" content="{{.Host}}">
+</head>
+<body>
+
+<!-- Guest join screen -->
+<div id="join-screen" class="join" {{if .IsHost}}hidden{{end}}>
+  <h1>pintalk</h1>
+  <p>Хост: <b>{{.Host}}</b></p>
+  <input id="name-input" type="text" maxlength="40" placeholder="Ваше имя" autofocus>
+  <button id="join-btn" class="full">Войти в звонок</button>
+</div>
+
+<!-- Call screen -->
+<div id="call-screen" class="call" {{if not .IsHost}}hidden{{end}}>
+  <div class="controls">
+    <span class="status" id="status">Подключение…</span>
+    <span class="spacer"></span>
+    {{if .IsHost}}
+      <button id="copy-link" class="secondary">Скопировать ссылку</button>
+    {{end}}
+    <button id="mic-btn" class="secondary" title="Микрофон">🎤</button>
+    <button id="cam-btn" class="secondary" title="Камера">📷</button>
+    <button id="hangup-btn" class="danger">Завершить</button>
+  </div>
+  <div class="stage">
+    <video id="local-video" autoplay muted playsinline></video>
+    <video id="remote-video" autoplay playsinline></video>
+    <div id="placeholder" class="placeholder">Ожидание собеседника…</div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

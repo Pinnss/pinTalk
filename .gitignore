@@ -1,0 +1,20 @@
+# Build artefacts
+/bin/
+/pintalk
+/pintalk-*
+*.exe
+
+# Local config (real bcrypt hash, secrets)
+/config.yaml
+
+# TLS cert cache
+/certs/
+/var/
+
+# IDE
+/.idea/
+/.vscode/
+
+# OS
+Thumbs.db
+.DS_Store

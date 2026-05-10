@@ -1,0 +1,47 @@
+# pintalk config
+# Скопировать в config.yaml и подставить реальные значения.
+
+server:
+  # Публичный домен (для autocert и для TURN-realm). В dev-режиме игнорируется.
+  domain: call.example.com
+
+  # HTTP-порт. В prod: 80 (для ACME HTTP-01 челленджа), редиректит на HTTPS.
+  http_port: 80
+
+  # HTTPS-порт. В prod: 443.
+  https_port: 443
+
+  # Куда autocert кэширует сертификаты Let's Encrypt.
+  cert_cache: ./certs
+
+  # Только для --dev: на каком порту слушать без TLS.
+  dev_port: 8080
+
+# Эфемерные TURN-creds через REST (RFC 5766 §5).
+turn:
+  enabled: true
+
+  # На каких адресах слушать TURN (UDP+TCP). 0.0.0.0 = все интерфейсы.
+  listen_ip: 0.0.0.0
+  port: 3478
+
+  # Внешний IP, который TURN будет складывать в ICE-кандидаты.
+  # Если за NAT — это WAN IP роутера. Для domain auto-resolve можно оставить пустым.
+  external_ip: ""
+
+  # Realm — обычно сам домен.
+  realm: call.example.com
+
+  # Секрет для HMAC-SHA1 в эфемерных credentials.
+  # Должен совпадать с тем, что отдаётся в /api/ice-config.
+  # Сгенерить: openssl rand -hex 32
+  shared_secret: "ЗАМЕНИ-МЕНЯ-НА-СЛУЧАЙНУЮ-СТРОКУ-32-БАЙТА"
+
+  # Сколько живёт каждый комплект creds (минут). 60 — разумно.
+  cred_ttl_minutes: 60
+
+# Хост-аккаунты (могут создавать комнаты).
+# Пароль — bcrypt-хэш, сгенерить: ./pintalk hash 'мой-пароль'
+hosts:
+  - username: pin
+    password_hash: "$2a$12$ЗАМЕНИ.НА.НАСТОЯЩИЙ.BCRYPT.ХЭШ"
