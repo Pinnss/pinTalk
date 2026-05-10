@@ -4,8 +4,10 @@
 /pintalk-*
 *.exe
 
-# Local config (real bcrypt hash, secrets)
+# Local config (real bcrypt hash, secrets) and credentials
 /config.yaml
+/.credentials.local.txt
+*.local.txt
 
 # TLS cert cache
 /certs/
