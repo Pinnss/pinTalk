@@ -103,17 +103,40 @@
 
   // --- main flow ---
   async function start(displayName) {
+    // Try camera+mic, then mic-only, then no media (listener mode).
     setStatus("Запрашиваем камеру…");
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: { echoCancellation: true, noiseSuppression: true },
       });
-    } catch (e) {
-      setStatus("Нет доступа к камере/микрофону: " + e.message);
-      return;
+    } catch (e1) {
+      console.warn("camera+mic failed:", e1.name, e1.message);
+      setStatus("Нет камеры — пробую микрофон…");
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+      } catch (e2) {
+        console.warn("mic-only failed:", e2.name, e2.message);
+        setStatus("Нет камеры/микрофона — режим только просмотра");
+        localStream = null; // proceed without media; we'll still receive remote
+      }
     }
-    elLocal.srcObject = localStream;
+
+    if (localStream) {
+      elLocal.srcObject = localStream;
+      // Hide local-video tile if no video track (audio-only host)
+      if (localStream.getVideoTracks().length === 0) {
+        elLocal.style.display = "none";
+        if (elCam) elCam.disabled = true;
+      }
+    } else {
+      // No local media at all — hide local tile and disable mic/cam controls.
+      elLocal.style.display = "none";
+      if (elCam) elCam.disabled = true;
+      if (elMic) elMic.disabled = true;
+    }
 
     setStatus("Получаем ICE-конфиг…");
     let iceServers = [{ urls: ["stun:stun.l.google.com:19302"] }];
@@ -181,8 +204,15 @@
   async function ensurePC(iceServers) {
     if (pc) return;
     pc = new RTCPeerConnection({ iceServers });
-    for (const track of localStream.getTracks()) {
-      pc.addTrack(track, localStream);
+    if (localStream) {
+      for (const track of localStream.getTracks()) {
+        pc.addTrack(track, localStream);
+      }
+    } else {
+      // No local media — explicitly add receive-only transceivers so the offer
+      // includes m-lines and the remote can send us its tracks.
+      pc.addTransceiver("audio", { direction: "recvonly" });
+      pc.addTransceiver("video", { direction: "recvonly" });
     }
     pc.addEventListener("icecandidate", ev => {
       if (ev.candidate && remotePeerId) {
