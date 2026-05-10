@@ -16,16 +16,24 @@
     </form>
   </header>
 
-  <div class="center-box" style="margin-top: 80px;">
+  <div class="center-box" style="margin-top: 60px;">
     <h1>Создать звонок</h1>
     <p class="muted" style="margin-bottom: 18px;">
       Нажми кнопку — откроется страница звонка, скопируй ссылку и отправь собеседнику.
     </p>
     <button id="create-btn" class="full">Создать звонок</button>
+
+    <div id="rooms-list" class="rooms-list" hidden></div>
   </div>
 
   <script>
+    const SVG_LINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+    const SVG_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+    const SVG_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
     const btn = document.getElementById('create-btn');
+    const list = document.getElementById('rooms-list');
+
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       btn.textContent = 'Создаём…';
@@ -40,6 +48,68 @@
         alert('Не удалось создать звонок: ' + e.message);
       }
     });
+
+    function fmtAge(unixSec) {
+      const ageS = Math.max(0, Math.floor(Date.now() / 1000) - unixSec);
+      if (ageS < 60) return ageS + ' сек';
+      if (ageS < 3600) return Math.floor(ageS / 60) + ' мин';
+      if (ageS < 86400) return Math.floor(ageS / 3600) + ' ч';
+      return Math.floor(ageS / 86400) + ' д';
+    }
+
+    async function loadRooms() {
+      try {
+        const r = await fetch('/api/rooms');
+        if (!r.ok) return;
+        const rooms = await r.json();
+        if (!rooms || rooms.length === 0) {
+          list.hidden = true;
+          list.innerHTML = '';
+          return;
+        }
+        list.hidden = false;
+        const rows = rooms.map(rm => {
+          const shortId = rm.id.slice(0, 10);
+          const peers = (rm.peers || 0) + '/2';
+          return `
+            <div class="room-row" data-id="${rm.id}">
+              <a class="room-id" href="${rm.url}" title="${rm.url}">${shortId}…</a>
+              <span class="room-peers" title="участников">${peers}</span>
+              <span class="room-peers" title="создано">${fmtAge(rm.created)}</span>
+              <button class="icon-btn" data-act="copy" data-url="${rm.url}" title="Скопировать ссылку">${SVG_LINK}</button>
+              <button class="icon-btn danger" data-act="delete" data-id="${rm.id}" title="Удалить звонок">${SVG_TRASH}</button>
+            </div>`;
+        }).join('');
+        list.innerHTML = '<h2 class="rooms-list-title">Активные звонки</h2>' + rows;
+      } catch (e) {
+        console.warn('loadRooms', e);
+      }
+    }
+
+    list.addEventListener('click', async ev => {
+      const target = ev.target.closest('button[data-act]');
+      if (!target) return;
+      ev.preventDefault();
+      const act = target.dataset.act;
+      if (act === 'copy') {
+        const fullUrl = window.location.origin + target.dataset.url;
+        try {
+          await navigator.clipboard.writeText(fullUrl);
+          const orig = target.innerHTML;
+          target.innerHTML = SVG_CHECK;
+          setTimeout(() => target.innerHTML = orig, 1200);
+        } catch {
+          prompt('Ссылка:', fullUrl);
+        }
+      } else if (act === 'delete') {
+        if (!confirm('Удалить звонок? Если кто-то в нём — их выкинет.')) return;
+        const r = await fetch('/api/rooms/' + encodeURIComponent(target.dataset.id), { method: 'DELETE' });
+        if (r.ok || r.status === 404) loadRooms();
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', loadRooms);
+    setInterval(loadRooms, 10000); // refresh peer counts
   </script>
 </body>
 </html>

@@ -133,6 +133,34 @@ func (r *Registry) Get(id string) *Room {
 	return r.rooms[id]
 }
 
+// ListByHost returns all rooms owned by the given host, sorted newest-first.
+func (r *Registry) ListByHost(host string) []*Room {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*Room, 0)
+	for _, room := range r.rooms {
+		if room.HostUsername == host {
+			out = append(out, room)
+		}
+	}
+	// newest first
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].Created.After(out[i].Created) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
+}
+
+// PeerCount returns the current peer count without exposing the peer list.
+func (r *Room) PeerCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.peers)
+}
+
 func (r *Registry) Delete(id string) {
 	r.mu.Lock()
 	if room, ok := r.rooms[id]; ok {

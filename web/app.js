@@ -202,18 +202,19 @@
   function swapTiles() {
     if (!remoteStream) return; // nothing to swap with
     pipShowsLocal = !pipShowsLocal;
-    // Swap srcObjects
+    // Place streams. Audio rule: LOCAL stream is always muted (or you'd hear yourself);
+    // REMOTE stream is always unmuted. Don't mute by tile, mute by content.
     if (pipShowsLocal) {
       elPip.srcObject = localStream;
+      elPip.muted = true;
       elMain.srcObject = remoteStream;
+      elMain.muted = false;
     } else {
       elPip.srcObject = remoteStream;
+      elPip.muted = false;
       elMain.srcObject = localStream;
+      elMain.muted = true;
     }
-    // PiP audio is always muted; main is not.
-    elPip.muted = true;
-    elMain.muted = false;
-    // Mirror state
     elPipWrap.classList.toggle("local-cam-mirror", pipShowsLocal && currentFacing === "user");
   }
 
@@ -317,13 +318,18 @@
       }
     });
     pc.addEventListener("track", ev => {
-      // Combine all remote tracks into a single MediaStream
+      // Combine all remote tracks into a single MediaStream.
       if (!remoteStream) remoteStream = new MediaStream();
       remoteStream.addTrack(ev.track);
-      // Render into "main" by default (PiP shows local)
-      const target = pipShowsLocal ? elMain : elPip;
-      target.srcObject = remoteStream;
-      target.muted = (target === elPip);
+      // Audio rule: remote is always unmuted, local always muted.
+      const remoteEl = pipShowsLocal ? elMain : elPip;
+      const localEl  = pipShowsLocal ? elPip  : elMain;
+      remoteEl.srcObject = remoteStream;
+      remoteEl.muted = false;
+      if (localStream) {
+        localEl.srcObject = localStream;
+        localEl.muted = true;
+      }
       showPlaceholder(false);
     });
     pc.addEventListener("connectionstatechange", () => {

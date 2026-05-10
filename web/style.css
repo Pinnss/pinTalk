@@ -130,7 +130,7 @@ body.call-body {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;     /* no ugly zoom for portrait video on landscape screens */
   background: #000;
 }
 
@@ -280,8 +280,9 @@ body.call-body {
   justify-content: center;
   gap: 14px;
   padding: 16px;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
-  background: linear-gradient(0deg, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%);
+  /* Bump bottom on mobile so controls sit above iOS Safari's overlay toolbar. */
+  padding-bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+  background: linear-gradient(0deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0) 100%);
   z-index: 5;
 }
 .ctrl-btn {
@@ -316,7 +317,69 @@ body.call-body {
 
 @media (max-width: 480px) {
   .ctrl-btn { width: 50px; height: 50px; }
-  .controls-bar { gap: 10px; padding: 12px; }
+  .controls-bar {
+    gap: 10px;
+    padding: 12px;
+    /* Even more bottom space on phones — iOS Safari overlay toolbar eats ~50px. */
+    padding-bottom: max(34px, calc(env(safe-area-inset-bottom) + 20px));
+  }
+}
+
+/* === rooms list (host dashboard) === */
+.rooms-list {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rooms-list-title {
+  font-size: 12px;
+  letter-spacing: 1px;
+  font-weight: 600;
+  color: #6e7681;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+.room-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+}
+.room-row .room-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #c9d1d9;
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-row .room-id:hover { color: #58a6ff; }
+.room-row .room-peers {
+  font-size: 12px;
+  color: #6e7681;
+  font-variant-numeric: tabular-nums;
+  min-width: 26px;
+  text-align: right;
+}
+.room-row .icon-btn {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+}
+.room-row .icon-btn:hover { color: #c9d1d9; background: #161b22; }
+.room-row .icon-btn.danger:hover { color: #f85149; border-color: #f85149; }
+.rooms-list-empty {
+  color: #6e7681;
+  font-size: 13px;
+  text-align: center;
+  padding: 14px 0;
 }
 
 [hidden] { display: none !important; }

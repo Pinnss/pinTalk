@@ -65,7 +65,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.HandleFunc("GET /app", s.requireAuth(s.handleApp))
+	mux.HandleFunc("GET /api/rooms", s.requireAuth(s.handleListRooms))
 	mux.HandleFunc("POST /api/rooms", s.requireAuth(s.handleCreateRoom))
+	mux.HandleFunc("DELETE /api/rooms/{id}", s.requireAuth(s.handleDeleteRoom))
 	mux.HandleFunc("GET /c/{id}", s.handleCallPage)
 	mux.HandleFunc("GET /api/ice-config", s.handleICEConfig)
 	mux.Handle("GET /ws", s.signal)
@@ -138,6 +140,35 @@ func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request, sess *
 		"id":  rm.ID,
 		"url": "/c/" + rm.ID,
 	})
+}
+
+func (s *Server) handleListRooms(w http.ResponseWriter, r *http.Request, sess *auth.Session) {
+	list := s.rooms.ListByHost(sess.Username)
+	out := make([]map[string]any, 0, len(list))
+	for _, rm := range list {
+		out = append(out, map[string]any{
+			"id":      rm.ID,
+			"url":     "/c/" + rm.ID,
+			"created": rm.Created.Unix(),
+			"peers":   rm.PeerCount(),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request, sess *auth.Session) {
+	id := r.PathValue("id")
+	rm := s.rooms.Get(id)
+	if rm == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if rm.HostUsername != sess.Username {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	s.rooms.Delete(id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleCallPage(w http.ResponseWriter, r *http.Request) {
