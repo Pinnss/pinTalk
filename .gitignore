@@ -17,6 +17,9 @@
 /.idea/
 /.vscode/
 
+# Local Claude Code tooling
+/.claude/
+
 # OS
 Thumbs.db
 .DS_Store

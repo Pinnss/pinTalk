@@ -7,6 +7,8 @@
 - Хост логинится по паролю, создаёт комнату, кидает ссылку гостю.
 - Гость открывает ссылку, вводит имя, попадает в звонок.
 - WebRTC P2P между браузерами; сервер только сигналинг и TURN-relay для случаев симметричного NAT.
+- Демонстрация экрана (на десктопе), переключение камер, PiP-раскладка со свапом плиток.
+- Graceful fallback: камера+микрофон → только микрофон → режим просмотра.
 
 ## Запуск (dev, на ноутбуке)
 
@@ -31,6 +33,10 @@ make build-arm64
 # → bin/pintalk-linux-arm64
 ```
 
-## Деплой
+## Установка / деплой
 
-См. `deploy/README.md`.
+- **[docs/INSTALL.ru.md](docs/INSTALL.ru.md)** — установка на Linux (Ubuntu/Debian, systemd) и OpenWrt (RU)
+- **[docs/INSTALL.en.md](docs/INSTALL.en.md)** — the same guide in English
+- `deploy/README.md` — подробная шпаргалка по деплою на BananaPi R3 / OpenWrt
+
+Готовые бинари (linux-amd64, linux-arm64) — в [Releases](https://github.com/Pinnss/pinTalk/releases).
