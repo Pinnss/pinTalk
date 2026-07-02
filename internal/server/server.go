@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sv9toslavPinigin/pintalk/internal/auth"
-	"github.com/Sv9toslavPinigin/pintalk/internal/config"
-	"github.com/Sv9toslavPinigin/pintalk/internal/room"
-	"github.com/Sv9toslavPinigin/pintalk/internal/signal"
-	"github.com/Sv9toslavPinigin/pintalk/internal/turn"
+	"github.com/Pinnss/pinTalk/internal/auth"
+	"github.com/Pinnss/pinTalk/internal/config"
+	"github.com/Pinnss/pinTalk/internal/room"
+	"github.com/Pinnss/pinTalk/internal/signal"
+	"github.com/Pinnss/pinTalk/internal/turn"
 )
 
 type Server struct {

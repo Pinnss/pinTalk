@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/Sv9toslavPinigin/pintalk/internal/config"
+	"github.com/Pinnss/pinTalk/internal/config"
 )
 
 const (

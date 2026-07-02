@@ -1,4 +1,4 @@
-module github.com/Sv9toslavPinigin/pintalk
+module github.com/Pinnss/pinTalk
 
 go 1.25
 

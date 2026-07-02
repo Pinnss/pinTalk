@@ -14,7 +14,7 @@ import (
 
 	"github.com/pion/turn/v3"
 
-	"github.com/Sv9toslavPinigin/pintalk/internal/config"
+	"github.com/Pinnss/pinTalk/internal/config"
 )
 
 type Server struct {

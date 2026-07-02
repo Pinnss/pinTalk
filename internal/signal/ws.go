@@ -11,8 +11,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Sv9toslavPinigin/pintalk/internal/auth"
-	"github.com/Sv9toslavPinigin/pintalk/internal/room"
+	"github.com/Pinnss/pinTalk/internal/auth"
+	"github.com/Pinnss/pinTalk/internal/room"
 )
 
 type Handler struct {

@@ -16,11 +16,11 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/Sv9toslavPinigin/pintalk/internal/auth"
-	"github.com/Sv9toslavPinigin/pintalk/internal/config"
-	"github.com/Sv9toslavPinigin/pintalk/internal/server"
-	"github.com/Sv9toslavPinigin/pintalk/internal/turn"
-	"github.com/Sv9toslavPinigin/pintalk/web"
+	"github.com/Pinnss/pinTalk/internal/auth"
+	"github.com/Pinnss/pinTalk/internal/config"
+	"github.com/Pinnss/pinTalk/internal/server"
+	"github.com/Pinnss/pinTalk/internal/turn"
+	"github.com/Pinnss/pinTalk/web"
 )
 
 func main() {
