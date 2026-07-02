@@ -182,6 +182,8 @@ body.call-body {
   background: #000;
 }
 .pip.local-cam-mirror video { transform: scaleX(-1); }
+/* Screen capture in PiP: never crop, screens are not people. */
+.pip.screen-share video { object-fit: contain; }
 .pip-hint {
   position: absolute;
   top: 6px;
@@ -308,6 +310,12 @@ body.call-body {
 }
 .ctrl-btn.muted .icon-on { display: none; }
 .ctrl-btn.muted .icon-off { display: block; }
+.ctrl-btn.sharing {
+  background: #58a6ff;
+  border-color: transparent;
+  color: #0d1117;
+}
+.ctrl-btn.sharing:hover { background: #79c0ff; }
 .ctrl-btn.hangup {
   background: #da3633;
   border-color: rgba(255, 255, 255, 0.0);

@@ -21,6 +21,7 @@
   const elMic      = $("mic-btn");
   const elCam      = $("cam-btn");
   const elFlip     = $("flip-btn");
+  const elShare    = $("share-btn");
   const elSwap     = $("swap-btn");
   const elHangup   = $("hangup-btn");
   const elCopy     = $("copy-link");
@@ -38,6 +39,15 @@
   let pipShowsLocal = true;     // false = pip shows remote, main shows local
   let currentFacing = "user";   // 'user' or 'environment' (mobile only)
   let hasMultipleCameras = false;
+
+  // Screen sharing state
+  let screenTrack = null;       // live getDisplayMedia video track while sharing
+  let camRestore = null;        // { enabled } if a camera track was displaced by the share
+  let shareBusy = false;        // serializes start/stop (UI button vs browser's stop bar)
+
+  // Renegotiation state (needed when a video track appears/disappears mid-call)
+  let makingOffer = false;
+  let needsRenegotiation = false;
 
   function setStatus(text) {
     if (elStatus) elStatus.textContent = text;
@@ -107,6 +117,19 @@
   if (elFlip) {
     elFlip.addEventListener("click", () => switchCamera());
   }
+  // Screen sharing: desktop browsers only (mobile has no getDisplayMedia).
+  if (elShare && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+    elShare.hidden = false;
+    elShare.addEventListener("click", async () => {
+      elShare.disabled = true;
+      try {
+        if (screenTrack) await stopScreenShare();
+        else await startScreenShare();
+      } finally {
+        elShare.disabled = false;
+      }
+    });
+  }
   if (elSwap) {
     elSwap.addEventListener("click", swapTiles);
   }
@@ -168,10 +191,23 @@
   // Renders localStream into the appropriate tile (PiP or main, depending on swap state)
   // and configures controls based on what tracks are present.
   function applyLocalStream() {
+    // If local media disappeared while tiles were swapped, un-swap first so
+    // the remote feed returns to the main tile before the PiP is hidden.
+    if (!localStream && !pipShowsLocal) {
+      pipShowsLocal = true;
+      elPip.srcObject = null;
+      if (remoteStream) {
+        elMain.srcObject = remoteStream;
+        elMain.muted = false;
+      }
+    }
+
     const localTarget = pipShowsLocal ? elPip : elMain;
     const otherTarget = pipShowsLocal ? elMain : elPip;
+    const sharing = !!screenTrack;
 
     if (localStream) {
+      elPipWrap.hidden = false;
       localTarget.srcObject = localStream;
       const hasVideo = localStream.getVideoTracks().length > 0;
       const hasAudio = localStream.getAudioTracks().length > 0;
@@ -179,8 +215,11 @@
         if (elCam) elCam.disabled = true;
         if (pipShowsLocal) elPipWrap.classList.add("no-video");
       } else {
-        if (elCam) elCam.disabled = false;
-        elPipWrap.classList.remove("no-video");
+        // cam toggle is meaningless while the screen track is live
+        if (elCam) elCam.disabled = sharing;
+        // a present-but-disabled camera renders black — keep the placeholder
+        // (the screen track is always enabled, so shares are unaffected)
+        elPipWrap.classList.toggle("no-video", pipShowsLocal && !localStream.getVideoTracks()[0].enabled);
       }
       if (!hasAudio && elMic) elMic.disabled = true;
     } else {
@@ -190,13 +229,21 @@
       if (elMic) elMic.disabled = true;
     }
 
-    // Mirror local cam in PiP (the front camera), but never the remote view.
-    elPipWrap.classList.toggle("local-cam-mirror", pipShowsLocal && currentFacing === "user");
+    if (elFlip) elFlip.disabled = sharing;
+    updateTileClasses();
 
     // Place remote stream in the "other" target if we have one.
     if (remoteStream) {
       otherTarget.srcObject = remoteStream;
     }
+  }
+
+  // Mirror local cam in PiP (the front camera), but never the remote view
+  // and never a screen capture; screen capture is letterboxed, not cropped.
+  function updateTileClasses() {
+    const sharing = !!screenTrack;
+    elPipWrap.classList.toggle("local-cam-mirror", pipShowsLocal && currentFacing === "user" && !sharing);
+    elPipWrap.classList.toggle("screen-share", pipShowsLocal && sharing);
   }
 
   function swapTiles() {
@@ -215,7 +262,7 @@
       elMain.srcObject = localStream;
       elMain.muted = true;
     }
-    elPipWrap.classList.toggle("local-cam-mirror", pipShowsLocal && currentFacing === "user");
+    updateTileClasses();
   }
 
   async function switchCamera() {
@@ -257,6 +304,126 @@
     applyLocalStream();
   }
 
+  // --- screen sharing ---
+  async function startScreenShare() {
+    if (screenTrack || shareBusy) return;
+    shareBusy = true;
+    try {
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      } catch (e) {
+        console.warn("getDisplayMedia failed:", e.name, e.message);
+        return; // user cancelled the picker or the browser refused
+      }
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+      screenTrack = track;
+
+      // The browser's own "Stop sharing" bar (or the captured window closing)
+      // ends the track without us — attach before any await so the event
+      // can't be missed. While shareBusy the stop no-ops; the tail check
+      // below unwinds a capture that died during setup.
+      track.addEventListener("ended", () => { stopScreenShare(); });
+
+      // Displace the camera track and stop it — camera light goes off while sharing.
+      const cam = localStream ? localStream.getVideoTracks()[0] : null;
+      if (cam) {
+        camRestore = { enabled: cam.enabled };
+        localStream.removeTrack(cam);
+        cam.stop();
+      } else {
+        camRestore = null;
+      }
+      if (!localStream) {
+        // listener mode: fabricate a local stream so the share has a preview tile
+        localStream = new MediaStream();
+      }
+      localStream.addTrack(track);
+
+      if (pc) await setOutgoingVideo(track);
+
+      if (elShare) elShare.classList.add("sharing");
+      if (elCam) elCam.classList.remove("muted");
+      applyLocalStream();
+    } finally {
+      shareBusy = false;
+    }
+    if (screenTrack && screenTrack.readyState === "ended") await stopScreenShare();
+  }
+
+  async function stopScreenShare() {
+    if (!screenTrack || shareBusy) return;
+    shareBusy = true;
+    const track = screenTrack;
+    screenTrack = null;
+    const restore = camRestore;
+    camRestore = null;
+    // Immediate feedback — don't leave the button "sharing" through the
+    // camera re-acquire below.
+    if (elShare) elShare.classList.remove("sharing");
+    try {
+      if (localStream) localStream.removeTrack(track);
+      track.stop();
+
+      // Bring the camera back if the share displaced one.
+      let camTrack = null;
+      if (restore) {
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: currentFacing },
+          });
+          camTrack = s.getVideoTracks()[0];
+          camTrack.enabled = restore.enabled;
+        } catch (e) {
+          console.warn("camera re-acquire failed:", e.name, e.message);
+        }
+        if (!localStream) {
+          // the call was torn down while we awaited — don't resurrect the camera
+          if (camTrack) camTrack.stop();
+          return;
+        }
+      }
+
+      if (camTrack) {
+        localStream.addTrack(camTrack);
+        if (pc) await setOutgoingVideo(camTrack);
+        if (elCam) elCam.classList.toggle("muted", !camTrack.enabled);
+      } else {
+        // nothing to restore — stop sending video altogether
+        if (pc) await setOutgoingVideo(null);
+        if (localStream && localStream.getTracks().length === 0) {
+          localStream = null; // back to listener mode
+        }
+      }
+
+      applyLocalStream();
+    } finally {
+      shareBusy = false;
+    }
+  }
+
+  // Points the outgoing video at `track` (or stops sending when null),
+  // renegotiating only when the SDP actually has to change.
+  async function setOutgoingVideo(track) {
+    if (!pc) return;
+    const tr = pc.getTransceivers().find(t => t.receiver && t.receiver.track && t.receiver.track.kind === "video");
+    if (!tr) {
+      // no video m-line at all (shouldn't happen after ensurePC, but be safe)
+      if (track) {
+        pc.addTrack(track, localStream);
+        await renegotiate();
+      }
+      return;
+    }
+    try { await tr.sender.replaceTrack(track); } catch (e) { console.warn("replaceTrack", e); }
+    const dir = track ? "sendrecv" : "recvonly";
+    if (tr.direction !== dir) {
+      tr.direction = dir;
+      await renegotiate();
+    }
+  }
+
   function openWS(name, iceServers) {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams({ room: ROOM_ID });
@@ -280,10 +447,13 @@
         }
         await ensurePC(iceServers);
         if (remotePeerId && initiator) {
-          await makeOffer();
+          await renegotiate();
         }
       } else if (m.type === "peer-joined") {
         remotePeerId = m.peer.id;
+        // A (re)joining peer always arrives as initiator — demote ourselves so
+        // exactly one side stays "impolite", or the glare handling deadlocks.
+        if (m.peer.initiator) initiator = false;
         await ensurePC(iceServers);
       } else if (m.type === "peer-left") {
         if (m.peerId === remotePeerId) {
@@ -308,8 +478,14 @@
       for (const track of localStream.getTracks()) {
         pc.addTrack(track, localStream);
       }
-    } else {
+    }
+    // Always negotiate an m-line per kind, even for kinds we don't send yet:
+    // remote media arrives regardless of ours, and screen sharing can start
+    // sending video mid-call from a mic-only or listener session.
+    if (!localStream || localStream.getAudioTracks().length === 0) {
       pc.addTransceiver("audio", { direction: "recvonly" });
+    }
+    if (!localStream || localStream.getVideoTracks().length === 0) {
       pc.addTransceiver("video", { direction: "recvonly" });
     }
     pc.addEventListener("icecandidate", ev => {
@@ -319,7 +495,17 @@
     });
     pc.addEventListener("track", ev => {
       // Combine all remote tracks into a single MediaStream.
-      if (!remoteStream) remoteStream = new MediaStream();
+      if (!remoteStream) {
+        remoteStream = new MediaStream();
+        // When renegotiation drops a remote track (peer stopped sharing and
+        // had no camera), re-attach the stream so no frozen frame lingers.
+        remoteStream.addEventListener("removetrack", () => {
+          if (!remoteStream) return;
+          const remoteEl = pipShowsLocal ? elMain : elPip;
+          remoteEl.srcObject = null;
+          remoteEl.srcObject = remoteStream;
+        });
+      }
       remoteStream.addTrack(ev.track);
       // Audio rule: remote is always unmuted, local always muted.
       const remoteEl = pipShowsLocal ? elMain : elPip;
@@ -332,6 +518,13 @@
       }
       showPlaceholder(false);
     });
+    pc.addEventListener("signalingstatechange", () => {
+      // A renegotiation requested mid-exchange runs once we're stable again.
+      if (pc && pc.signalingState === "stable" && needsRenegotiation) {
+        needsRenegotiation = false;
+        renegotiate();
+      }
+    });
     pc.addEventListener("connectionstatechange", () => {
       switch (pc.connectionState) {
         case "connecting": setStatus("Соединение по WebRTC…"); break;
@@ -343,16 +536,44 @@
     });
   }
 
-  async function makeOffer() {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendSignal(remotePeerId, { sdp: pc.localDescription });
+  // Creates and sends an offer — used for both the initial negotiation and
+  // mid-call changes (screen share). If an exchange is already in flight,
+  // the request is queued and replayed once signaling returns to stable.
+  async function renegotiate() {
+    if (!pc || !remotePeerId) return; // tracks are picked up by the next negotiation
+    if (makingOffer || pc.signalingState !== "stable") {
+      needsRenegotiation = true;
+      return;
+    }
+    makingOffer = true;
+    try {
+      const offer = await pc.createOffer();
+      if (!pc) return; // connection torn down while the offer was created
+      if (pc.signalingState !== "stable") {
+        needsRenegotiation = true;
+        return;
+      }
+      await pc.setLocalDescription(offer);
+      sendSignal(remotePeerId, { sdp: pc.localDescription });
+    } catch (e) {
+      console.warn("renegotiate failed:", e);
+    } finally {
+      makingOffer = false;
+    }
   }
 
   async function handleSignal(fromId, payload) {
     if (!pc) return;
     if (payload.sdp) {
       const desc = new RTCSessionDescription(payload.sdp);
+      // Offer glare: both sides offered at once. The initiator is the
+      // "impolite" peer and ignores the colliding offer; the polite peer
+      // rolls back its own offer (implicit rollback) and re-offers later.
+      const collision = desc.type === "offer" && (makingOffer || pc.signalingState !== "stable");
+      if (collision) {
+        if (initiator) return;
+        needsRenegotiation = true;
+      }
       await pc.setRemoteDescription(desc);
       for (const c of pendingICE) {
         try { await pc.addIceCandidate(c); } catch (e) { console.warn("buffered ice", e); }
@@ -384,6 +605,8 @@
       pc = null;
     }
     pendingICE = [];
+    makingOffer = false;
+    needsRenegotiation = false;
   }
 
   function cleanup() {
@@ -391,5 +614,7 @@
     if (ws) { try { ws.close(); } catch {} ws = null; }
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
     if (remoteStream) { remoteStream.getTracks().forEach(t => t.stop()); remoteStream = null; }
+    screenTrack = null;
+    camRestore = null;
   }
 })();
