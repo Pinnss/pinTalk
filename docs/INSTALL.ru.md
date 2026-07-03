@@ -2,107 +2,128 @@
 
 *Read this guide in English: [INSTALL.en.md](INSTALL.en.md).*
 
-pintalk — это один статический Go-бинарь: веб-интерфейс, сигналинг, TURN-relay и
-автоматические сертификаты Let's Encrypt встроены внутрь. Ни Docker, ни базы
-данных, ни внешних зависимостей.
+pintalk — это один статический Go-бинарь: веб-интерфейс, сигналинг и TURN-relay
+внутри. Ни Docker, ни базы данных, ни внешних зависимостей.
 
-Инструкция покрывает две площадки:
+HTTPS обязателен (без него браузер не даёт доступ к камере/микрофону), но домен —
+**нет**. Есть три режима сертификата:
 
-- [Linux (Ubuntu / Debian, systemd)](#linux-ubuntu--debian)
-- [OpenWrt (роутеры, например BananaPi R3)](#openwrt)
+| `tls.mode` | Когда использовать | Домен | Предупреждение браузера |
+|---|---|---|---|
+| `selfsigned` | локальная сеть / по IP | не нужен | да (или поставить CA один раз) |
+| `letsencrypt-ip` | публичный IP, домена нет | не нужен | нет (серт ~6 дней, автопродление) |
+| `letsencrypt-domain` | есть домен на сервер | нужен | нет |
 
-## Предусловия (для обеих платформ)
+---
 
-1. **Домен указывает на публичный IP** — например, `call.example.com` должен
-   резолвиться в WAN-адрес машины. Иначе Let's Encrypt не выпустит сертификат.
-2. **Порты доступны из интернета**:
-   - `80/tcp` — ACME HTTP-01 челлендж + редирект на HTTPS
-   - `443/tcp` — само приложение
-   - `3478/udp` и `3478/tcp` — TURN-relay (нужен, когда собеседник за симметричным NAT / CGNAT)
-3. **Нет CGNAT** на стороне сервера. Если провайдер держит вас за CGNAT — HTTP-01
-   не сработает и входящие звонки не дойдут; хостите на VPS.
+## Способ 1. Установщик в одну команду (Linux + systemd)
 
-## Где взять бинарь
+Самый быстрый путь. Скрипт скачает нужный бинарь, проведёт мастер настройки,
+поставит systemd-сервис и откроет порты:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Pinnss/pinTalk/main/deploy/install.sh | sudo sh
+```
+
+Мастер спросит, есть ли у вас домен / публичный IP, и сам подберёт режим, придумает
+пароль (или примет ваш), сгенерит секреты и сертификат. Дальше — откройте
+напечатанную ссылку и логиньтесь.
+
+Обновление — повторный запуск той же команды (конфиг остаётся на месте).
+
+---
+
+## Способ 2. Вручную
+
+### Шаг 1. Взять бинарь
 
 Скачайте из [GitHub Releases](https://github.com/Pinnss/pinTalk/releases):
 
 | Файл | Платформа |
 |---|---|
 | `pintalk-linux-amd64` | Ubuntu / Debian / любой x86_64 Linux |
-| `pintalk-linux-arm64` | ARM64: OpenWrt aarch64 (BPI-R3), Raspberry Pi 4/5 (64-бит ОС), ARM-серверы |
+| `pintalk-linux-arm64` | ARM64: OpenWrt aarch64 (BPI-R3), Raspberry Pi 4/5, ARM-серверы |
 
-Бинари полностью статические (`CGO_ENABLED=0`), поэтому один и тот же файл
-работает на любом дистрибутиве нужной архитектуры — отдельных сборок «под Ubuntu»
-и «под Debian» не требуется.
-
-Либо соберите из исходников (Go 1.25+):
+Бинари статические (`CGO_ENABLED=0`) — один файл на любой дистрибутив нужной
+архитектуры. Или соберите из исходников (Go 1.25+):
 
 ```bash
 git clone https://github.com/Pinnss/pinTalk.git && cd pinTalk
-CGO_ENABLED=0 go build -ldflags="-s -w" -o pintalk ./cmd/pintalk          # текущая платформа
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o pintalk-linux-arm64 ./cmd/pintalk
+make build-amd64   # → bin/pintalk-linux-amd64
+make build-arm64   # → bin/pintalk-linux-arm64
 ```
 
-## Конфигурация (для обеих платформ)
+### Шаг 2. Сгенерировать конфиг
 
-Сгенерируйте bcrypt-хэш пароля хоста (на любой машине, хоть на Windows):
+Самый простой способ — мастер (сам хеширует пароль и создаёт секреты):
 
 ```bash
-./pintalk hash 'мой-надёжный-пароль'
-# → $2a$12$...
+pintalk init
 ```
 
-Создайте `config.yaml` по образцу [`config.example.yaml`](../config.example.yaml):
+Он задаст несколько вопросов и запишет `config.yaml`. Хотите вручную — скопируйте
+[`config.example.yaml`](../config.example.yaml) и заполните. Минимальный конфиг для
+**локальной сети без домена**:
 
 ```yaml
 server:
-  domain: call.example.com     # ваш домен
-  listen_ip: ""                # "" = все интерфейсы; укажите WAN IP, если :80/:443 заняты на LAN
+  listen_ip: ""          # "" = все интерфейсы
   http_port: 80
   https_port: 443
+
+tls:
+  mode: selfsigned
   cert_cache: /etc/pintalk/certs
 
 turn:
-  enabled: true
-  listen_ip: 0.0.0.0
-  port: 3478
-  external_ip: ""              # WAN IP; "" — определится по домену автоматически
-  realm: call.example.com
-  shared_secret: "<вывод команды: openssl rand -hex 32>"
-  cred_ttl_minutes: 60
+  enabled: false         # в LAN P2P работает напрямую, TURN не нужен
 
 hosts:
   - username: pin
-    password_hash: "<сюда bcrypt-хэш $2a$12$... из шага выше>"
+    password_hash: "<вывод: pintalk hash 'мой-пароль'>"
 ```
+
+Для **публичного IP без домена** — `tls.mode: letsencrypt-ip`, `tls.public_ip: <ваш IP>`,
+`turn.enabled: true`, `turn.external_ip: <ваш IP>`. Для **домена** — `tls.mode:
+letsencrypt-domain`, `server.domain: call.example.com`.
+
+### Что нужно для каждого режима
+
+- **selfsigned** — ничего снаружи; работает даже без интернета. Порт 443 (и 80 —
+  для скачивания CA и редиректа) слушаются локально.
+- **letsencrypt-domain** — домен резолвится в WAN-IP сервера; порты `80/tcp` и
+  `443/tcp` открыты из интернета; **нет CGNAT** (иначе ACME HTTP-01 не пройдёт).
+- **letsencrypt-ip** — публичный IP; порты `80/tcp` и `443/tcp` открыты; серт
+  короткоживущий (~6 дней), pintalk продлевает его сам.
+- **TURN** (`3478/tcp`+`3478/udp`) — нужен, когда собеседник за симметричным NAT /
+  CGNAT. В чистом LAN можно не открывать.
 
 ---
 
-## Linux (Ubuntu / Debian)
+## Linux (Ubuntu / Debian, systemd) — вручную
 
-Проверено на Ubuntu 22.04/24.04 и Debian 12; на любом дистрибутиве с systemd — так же.
+Проверено на Ubuntu 22.04/24.04 и Debian 12.
 
 ### 1. Установить бинарь
 
 ```bash
 sudo install -m 755 pintalk-linux-amd64 /usr/local/bin/pintalk
-pintalk --help   # проверка
+pintalk --help
 ```
 
-### 2. Создать сервисного пользователя и каталог конфига
+### 2. Каталог конфига + сервисный пользователь
 
 ```bash
 sudo useradd --system --home /etc/pintalk --shell /usr/sbin/nologin pintalk
 sudo mkdir -p /etc/pintalk/certs
-sudo cp config.yaml /etc/pintalk/config.yaml
+# сгенерить конфиг сразу в /etc/pintalk (cert-cache — абсолютный путь для systemd):
+sudo pintalk init --config /etc/pintalk/config.yaml --cert-cache /etc/pintalk/certs
 sudo chown -R pintalk:pintalk /etc/pintalk
 sudo chmod 700 /etc/pintalk/certs
 sudo chmod 600 /etc/pintalk/config.yaml
 ```
 
-### 3. Установить systemd-юнит
-
-Готовый юнит лежит в репозитории: [`deploy/systemd/pintalk.service`](../deploy/systemd/pintalk.service):
+### 3. systemd-юнит
 
 ```bash
 sudo cp deploy/systemd/pintalk.service /etc/systemd/system/pintalk.service
@@ -111,9 +132,9 @@ sudo systemctl enable --now pintalk
 ```
 
 Юнит запускает pintalk от непривилегированного пользователя `pintalk` и выдаёт
-`CAP_NET_BIND_SERVICE`, чтобы слушать порты 80/443 без root.
+`CAP_NET_BIND_SERVICE` для портов 80/443 без root.
 
-### 4. Открыть файрвол (если включён)
+### 4. Файрвол (для letsencrypt-* и TURN)
 
 ```bash
 sudo ufw allow 80/tcp
@@ -127,15 +148,13 @@ sudo ufw allow 3478/udp
 ```bash
 systemctl status pintalk
 journalctl -u pintalk -f
-# ожидаем:
-#   [pintalk] TURN listening on 0.0.0.0:3478 ...
-#   [pintalk] http listening on :80 (ACME + redirect)
-#   [pintalk] https listening on :443 (domain=call.example.com)
+# self-signed:        [pintalk] https listening on :443 (self-signed TLS)
+# letsencrypt-ip:     [pintalk] https listening on :443 (letsencrypt IP=<ваш IP>)
+# letsencrypt-domain: [pintalk] https listening on :443 (letsencrypt domain=call.example.com)
 ```
 
-Откройте `https://call.example.com` — должна появиться форма логина. Самый первый
-HTTPS-запрос занимает ~5–15 секунд: autocert получает сертификат и кэширует его
-в `/etc/pintalk/certs`.
+Откройте напечатанную мастером ссылку. В режиме `letsencrypt-*` самый первый
+HTTPS-запрос идёт ~5–15 секунд (получение сертификата).
 
 ### Обновление
 
@@ -149,81 +168,73 @@ sudo systemctl start pintalk
 
 ## OpenWrt
 
-Проверено на OpenWrt 24.10 (BananaPi R3, aarch64). Используется штатный procd.
+Проверено на OpenWrt 24.10 (BananaPi R3, aarch64). Штатный procd.
 
-> Если LuCI занимает `:80/:443` на LAN-интерфейсе — укажите в `config.yaml`
-> `server.listen_ip` = **WAN IP** роутера, чтобы сервисы не поссорились за порты.
+> Если LuCI занимает `:80/:443` на LAN — укажите в `config.yaml`
+> `server.listen_ip` = **WAN IP** роутера.
 
 ### 1. Скопировать файлы на роутер
-
-С рабочей машины (`ROUTER=root@192.168.1.1` — подставьте свой адрес):
 
 ```bash
 ROUTER=root@192.168.1.1
 
-# бинарь
 scp pintalk-linux-arm64 $ROUTER:/usr/bin/pintalk
 ssh $ROUTER 'chmod +x /usr/bin/pintalk'
 
-# конфиг (с заполненными секретами)
+# конфиг: проще сгенерить локально мастером, затем залить
+pintalk init --config ./config.yaml --cert-cache /etc/pintalk/certs
 ssh $ROUTER 'mkdir -p /etc/pintalk/certs && chmod 700 /etc/pintalk/certs'
 scp config.yaml $ROUTER:/etc/pintalk/config.yaml
 ssh $ROUTER 'chmod 600 /etc/pintalk/config.yaml'
 
-# procd init-скрипт
 scp deploy/init.d/pintalk $ROUTER:/etc/init.d/pintalk
 ssh $ROUTER 'chmod +x /etc/init.d/pintalk'
 ```
 
-### 2. Открыть файрвол
-
-В репозитории есть готовый скрипт, добавляющий три правила через UCI:
+### 2. Файрвол (для letsencrypt-* / TURN)
 
 ```bash
 scp deploy/firewall-add.sh $ROUTER:/tmp/
 ssh $ROUTER 'sh /tmp/firewall-add.sh && rm /tmp/firewall-add.sh'
 ```
 
-(Эквивалент разрешения `80/tcp`, `443/tcp`, `3478/tcp+udp` из зоны WAN.)
-
 ### 3. Включить и запустить
 
 ```bash
 ssh $ROUTER '/etc/init.d/pintalk enable && /etc/init.d/pintalk start'
-```
-
-### 4. Проверить
-
-```bash
-ssh $ROUTER '/etc/init.d/pintalk status'
 ssh $ROUTER 'logread -e pintalk | tail -30'
 ```
-
-Затем откройте `https://call.example.com` в браузере (первый запрос медленный — см. выше).
 
 ### Обновление
 
 ```bash
-scp pintalk-linux-arm64 $ROUTER:/usr/bin/pintalk.new
-ssh $ROUTER 'mv /usr/bin/pintalk.new /usr/bin/pintalk && chmod +x /usr/bin/pintalk && /etc/init.d/pintalk restart'
+make deploy ROUTER=root@192.168.2.1
 ```
-
-(Либо `make deploy ROUTER=root@...`, если работаете из клона репозитория.)
 
 ---
 
 ## Если что-то не работает
 
-**Сертификат не выпускается.**
-Проверьте DNS: `dig +short call.example.com` должен совпадать с WAN IP
-(`curl -s ifconfig.me` с сервера). Проверьте доступность 80 порта снаружи:
-`curl -v http://call.example.com/.well-known/acme-challenge/test` должен вернуть
-404 (его отдаёт сам pintalk). За CGNAT HTTP-01 не работает.
+**Браузер ругается на сертификат (режим `selfsigned`).**
+Так и задумано — серт самоподписанный. Нажмите «Дополнительно → Всё равно
+продолжить». Чтобы убрать предупреждение навсегда, откройте
+`http://<хост>/pintalk-ca.crt`, скачайте и установите этот CA в доверенные на
+каждом устройстве (телефоны/ПК). После этого — зелёный замок.
+
+**Гостю тоже нужно нажать «продолжить».**
+Да, в `selfsigned` предупреждение видит каждый, кто открывает ссылку впервые.
+Либо раздайте им CA-файл, либо — если хотите совсем без предупреждений — заведите
+домен (`letsencrypt-domain`) или получите серт на публичный IP (`letsencrypt-ip`).
+
+**Сертификат Let's Encrypt не выпускается.**
+Для домена: `dig +short call.example.com` должен совпадать с WAN-IP
+(`curl -s ifconfig.me` с сервера), а `curl -v http://<host>/.well-known/acme-challenge/test`
+снаружи — доходить до pintalk (404). Для IP: IP должен быть публичным и доступным
+на порту 80. За CGNAT HTTP-01 не работает — берите VPS.
 
 **Звонки соединяются в LAN, но не через интернет.**
-Скорее всего закрыт TURN-порт — проверьте `nc -zv call.example.com 3478` снаружи.
-Если сервер за NAT — укажите в `turn.external_ip` реальный WAN IP, иначе TURN
-раздаёт ICE-кандидаты с приватным адресом.
+Скорее всего закрыт TURN-порт — проверьте `nc -zv <host> 3478` снаружи. Если
+сервер за NAT — укажите в `turn.external_ip` реальный WAN-IP.
 
 **Нет кнопки демонстрации экрана.**
 Захват экрана требует десктопного браузера (`getDisplayMedia`); на телефонах

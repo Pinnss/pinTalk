@@ -6,6 +6,7 @@ import (
 	"errors"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -18,15 +19,20 @@ import (
 )
 
 type Server struct {
-	cfg     *config.Config
-	auth    *auth.Store
-	rooms   *room.Registry
-	signal  *signal.Handler
-	logger  *log.Logger
-	web     embed.FS
-	tpls    *template.Template
-	devMode bool
+	cfg       *config.Config
+	auth      *auth.Store
+	rooms     *room.Registry
+	signal    *signal.Handler
+	logger    *log.Logger
+	web       embed.FS
+	tpls      *template.Template
+	devMode   bool
+	caCertPEM []byte // local CA offered at /pintalk-ca.crt (self-signed mode); nil otherwise
 }
+
+// SetCACertPEM registers the local CA certificate served at /pintalk-ca.crt so
+// users can install it once and avoid the browser warning in self-signed mode.
+func (s *Server) SetCACertPEM(pem []byte) { s.caCertPEM = pem }
 
 func New(cfg *config.Config, webFS embed.FS, logger *log.Logger, devMode bool) (*Server, error) {
 	tpls, err := template.ParseFS(webFS, "*.html")
@@ -70,6 +76,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/rooms/{id}", s.requireAuth(s.handleDeleteRoom))
 	mux.HandleFunc("GET /c/{id}", s.handleCallPage)
 	mux.HandleFunc("GET /api/ice-config", s.handleICEConfig)
+	mux.HandleFunc("GET /pintalk-ca.crt", s.handleCACert)
 	mux.Handle("GET /ws", s.signal)
 
 	return s.logMiddleware(mux)
@@ -198,7 +205,16 @@ func (s *Server) handleICEConfig(w http.ResponseWriter, r *http.Request) {
 			time.Duration(cfg.CredTTLMinutes)*time.Minute,
 			"p",
 		)
-		host := s.cfg.Server.Domain
+		// Where clients should reach the TURN server: the configured external
+		// IP, else the domain, else whatever host the client used to reach us
+		// (covers IP/LAN modes that have no domain).
+		host := cfg.ExternalIP
+		if host == "" {
+			host = s.cfg.Server.Domain
+		}
+		if host == "" {
+			host = hostOnly(r.Host)
+		}
 		port := cfg.Port
 		urls := []string{
 			"turn:" + host + ":" + itoa(port) + "?transport=udp",
@@ -213,7 +229,26 @@ func (s *Server) handleICEConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"iceServers": servers})
 }
 
+func (s *Server) handleCACert(w http.ResponseWriter, r *http.Request) {
+	if len(s.caCertPEM) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	w.Header().Set("Content-Disposition", `attachment; filename="pintalk-ca.crt"`)
+	_, _ = w.Write(s.caCertPEM)
+}
+
 // --- helpers ---
+
+// hostOnly strips an optional :port from a Host header value ("host:port" or a
+// bare "host"), returning just the host.
+func hostOnly(hostport string) string {
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		return h
+	}
+	return hostport
+}
 
 type authedHandler func(http.ResponseWriter, *http.Request, *auth.Session)
 

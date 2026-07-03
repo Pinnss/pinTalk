@@ -1,4 +1,4 @@
-.PHONY: dev build build-arm64 hash deploy clean tidy
+.PHONY: dev build build-arm64 build-amd64 release hash deploy clean tidy
 
 # Локальный запуск без TLS на :8080
 dev:
@@ -13,6 +13,18 @@ build-arm64:
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
 		-ldflags="-s -w" \
 		-o bin/pintalk-linux-arm64 ./cmd/pintalk
+
+# Production-сборка под x86_64 Linux
+build-amd64:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+		-ldflags="-s -w" \
+		-o bin/pintalk-linux-amd64 ./cmd/pintalk
+
+# Оба release-бинаря + SHA256SUMS (имена совпадают с ассетами, которые качает и
+# проверяет deploy/install.sh). Загрузи все три файла в GitHub Release.
+release: build-amd64 build-arm64
+	cd bin && sha256sum pintalk-linux-amd64 pintalk-linux-arm64 > SHA256SUMS
+	@echo "release assets ready in bin/: pintalk-linux-amd64, pintalk-linux-arm64, SHA256SUMS"
 
 # bcrypt-хэш для config.yaml
 hash:

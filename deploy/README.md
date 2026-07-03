@@ -2,9 +2,14 @@
 
 ## Предусловия
 
+Эта шпаргалка описывает деплой с доменом и Let's Encrypt (`tls.mode:
+letsencrypt-domain`). Если домена нет — pintalk умеет `selfsigned` (по IP, с
+самоподписанным сертом) и `letsencrypt-ip` (публичный IP без домена); подробности
+в [../docs/INSTALL.ru.md](../docs/INSTALL.ru.md). Для домена нужно:
+
 1. **Домен указывает на WAN-IP роутера** — `call.example.com` (или твой) должен резолвиться в публичный IP роутера. Без этого Let's Encrypt не выпустит сертификат.
 2. **Порты доступны из интернета**: 80/TCP (ACME challenge), 443/TCP (HTTPS), 3478/UDP+TCP (TURN).
-   - Если у провайдера CGNAT (МТС/Билайн на мобильных тарифах часто) — autocert HTTP-01 не сработает. Тогда либо переходим на DNS-01 (для CF можно), либо ставим за реверс-прокси с уже валидным сертом.
+   - Если у провайдера CGNAT (МТС/Билайн на мобильных тарифах часто) — HTTP-01 не сработает. Тогда либо `selfsigned` + раздать CA, либо ставим за реверс-прокси с уже валидным сертом.
 3. **Свободны 80 и 443** на роутере (на bpi-r3 это обычно так — LuCI висит на других портах либо только на LAN).
 
 ## Шаг 1. Сборка под aarch64
@@ -28,13 +33,17 @@ make build-arm64
 
 ## Шаг 3. Конфиг
 
-Скопируй `config.example.yaml` локально как `config.yaml`, отредактируй:
+Проще всего — `pintalk init` (сам хеширует пароль и генерит секреты). Или скопируй
+`config.example.yaml` локально как `config.yaml` и отредактируй:
 
 ```yaml
 server:
   domain: call.example.com
   http_port: 80
   https_port: 443
+
+tls:
+  mode: letsencrypt-domain
   cert_cache: /etc/pintalk/certs
 
 turn:

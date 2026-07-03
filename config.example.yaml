@@ -1,52 +1,63 @@
 # pintalk config
-# Скопировать в config.yaml и подставить реальные значения.
+# Fastest path: run `pintalk init` to generate this file interactively.
+# Otherwise copy to config.yaml and fill in real values.
 
 server:
-  # Публичный домен (для autocert и для TURN-realm). В dev-режиме игнорируется.
-  domain: call.example.com
+  # Public domain — only needed for tls.mode=letsencrypt-domain. Leave empty for
+  # IP / LAN setups.
+  domain: ""
 
-  # На каком IP слушать. Пусто = все интерфейсы (0.0.0.0).
-  # Если на роутере LuCI крутится на LAN-IP (192.168.2.1:80/443),
-  # то поставь сюда WAN-IP — тогда оба сервиса не поссорятся за порты.
+  # Which IP to bind HTTP/HTTPS on. Empty = all interfaces (0.0.0.0).
+  # If LuCI already uses :80/:443 on the LAN IP, set this to the WAN IP.
   listen_ip: ""
 
-  # HTTP-порт. В prod: 80 (для ACME HTTP-01 челленджа), редиректит на HTTPS.
-  http_port: 80
+  http_port: 80    # prod: 80 (ACME challenge / CA download / redirect to HTTPS)
+  https_port: 443  # prod: 443 (the app)
+  dev_port: 8080   # only for `serve --dev`
 
-  # HTTPS-порт. В prod: 443.
-  https_port: 443
+# How the HTTPS certificate is obtained.
+tls:
+  # mode:
+  #   ""                  auto — letsencrypt-domain if server.domain is set, else selfsigned
+  #   selfsigned          no domain needed; works by IP / on a LAN. Browsers warn
+  #                       until the CA is installed from http://<host>/pintalk-ca.crt
+  #   letsencrypt-domain  trusted cert for server.domain (needs a public domain, ports 80+443)
+  #   letsencrypt-ip      trusted cert for a bare public IP (needs a public IP, ports 80+443)
+  mode: selfsigned
 
-  # Куда autocert кэширует сертификаты Let's Encrypt.
+  # Public IP to certify in letsencrypt-ip mode. If empty, turn.external_ip is used.
+  public_ip: ""
+
+  # Optional ACME account email (letsencrypt-* modes).
+  email: ""
+
+  # Where certificates and the self-signed CA are cached.
   cert_cache: ./certs
 
-  # Только для --dev: на каком порту слушать без TLS.
-  dev_port: 8080
-
-# Эфемерные TURN-creds через REST (RFC 5766 §5).
+# Ephemeral TURN credentials via REST (RFC 5766 §5). Needed to relay media when a
+# peer is behind symmetric NAT / CGNAT. On a pure LAN it can stay disabled.
 turn:
-  enabled: true
+  enabled: false
 
-  # На каких адресах слушать TURN (UDP+TCP). 0.0.0.0 = все интерфейсы.
+  # Which addresses TURN listens on (UDP+TCP). 0.0.0.0 = all interfaces.
   listen_ip: 0.0.0.0
   port: 3478
 
-  # Внешний IP, который TURN будет складывать в ICE-кандидаты.
-  # Если за NAT — это WAN IP роутера. Для domain auto-resolve можно оставить пустым.
+  # Public IP that TURN advertises in ICE candidates. Behind NAT this is the WAN
+  # IP. Empty lets it auto-resolve from the domain.
   external_ip: ""
 
-  # Realm — обычно сам домен.
-  realm: call.example.com
+  # Realm — any stable string; usually the domain or IP. Empty defaults sensibly.
+  realm: ""
 
-  # Секрет для HMAC-SHA1 в эфемерных credentials.
-  # Должен совпадать с тем, что отдаётся в /api/ice-config.
-  # Сгенерить: openssl rand -hex 32
+  # Secret for the HMAC-SHA1 in ephemeral credentials. Generate: openssl rand -hex 32
   shared_secret: "ЗАМЕНИ-МЕНЯ-НА-СЛУЧАЙНУЮ-СТРОКУ-32-БАЙТА"
 
-  # Сколько живёт каждый комплект creds (минут). 60 — разумно.
+  # How long each credential set lives (minutes).
   cred_ttl_minutes: 60
 
-# Хост-аккаунты (могут создавать комнаты).
-# Пароль — bcrypt-хэш, сгенерить: ./pintalk hash 'мой-пароль'
+# Host accounts (can create rooms).
+# Password is a bcrypt hash — generate with: pintalk hash 'my-password'
 hosts:
   - username: pin
     password_hash: "$2a$12$ЗАМЕНИ.НА.НАСТОЯЩИЙ.BCRYPT.ХЭШ"

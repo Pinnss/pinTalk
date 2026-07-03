@@ -10,6 +10,7 @@ Wants=network-online.target
 
 [Service]
 ExecStart=/usr/local/bin/pintalk serve --config /etc/pintalk/config.yaml
+WorkingDirectory=/etc/pintalk
 Restart=on-failure
 RestartSec=5
 User=pintalk
@@ -20,7 +21,8 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 
-# Hardening: the only place pintalk writes is the autocert cert cache.
+# Hardening: the only place pintalk writes is the certificate cache
+# (Let's Encrypt certs, or the self-signed CA/leaf and ACME account key).
 ProtectSystem=strict
 ReadWritePaths=/etc/pintalk/certs
 ProtectHome=true
