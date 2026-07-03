@@ -144,7 +144,7 @@ systemctl daemon-reload
 systemctl enable pintalk >/dev/null 2>&1 || true
 
 # --- firewall (best effort) ---
-if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi active; then
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "status: active"; then
 	log "Opening firewall (ufw): 80, 443, 3478"
 	ufw allow 80/tcp   >/dev/null 2>&1 || true
 	ufw allow 443/tcp  >/dev/null 2>&1 || true
